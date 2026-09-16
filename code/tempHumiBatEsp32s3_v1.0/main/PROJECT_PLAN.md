@@ -23,11 +23,11 @@ MCP3421 external ADC (×2), and user menu navigation via tactile switches.
 
 ## Development Steps
 
-### Step 1: LED Blink Test (bring-up)
-- [ ] Include LedBlink block
-- [ ] Init LED on GPIO48
-- [ ] Blink 500ms on / 500ms off in main loop
-- **Test**: LED blinks → power, GPIO, FreeRTOS all working
+### Step 1: LED Blink Test (bring-up) ✓ DONE
+- [x] Include LedBlink block
+- [x] Init LED on GPIO48
+- [x] Blink 500ms on / 500ms off in main loop
+- **Test**: LED blinks → power, GPIO, FreeRTOS all working ✓
 - File: code/main/main.c
 
 ### Step 2: GLCD Test

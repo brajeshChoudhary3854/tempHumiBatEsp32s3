@@ -1,0 +1,3 @@
+# Workaround: xtensa-esp-elf-gcc 13.2.0 ICE (segfault in IRA pass) on
+# esp_lcd_panel_rgb.c when compiled with -Og. Use -O0 until toolchain is updated.
+CONFIG_COMPILER_OPTIMIZATION_NONE=y

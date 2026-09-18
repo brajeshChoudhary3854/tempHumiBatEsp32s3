@@ -183,11 +183,32 @@ static void sw_event_cb(switch_id_t id, switch_event_t event)
 
 /*
 // ── Step 5-8 placeholders (uncomment as steps are enabled) ────────────
-static mcp3421_dev_t s_ic1, s_ic2;
+
+// IC1 — temperature sensor: I2C_NUM_0  SDA=GPIO8  SCL=GPIO9
+static mcp3421_handle_t s_ic1;
+static const mcp3421_bus_config_t s_bus1 = {
+    .i2c_port = I2C_NUM_0,
+    .sda_pin  = 8,
+    .scl_pin  = 9,
+    .clk_hz   = MCP3421_CLK_DEFAULT,
+};
+
+// IC2 — humidity sensor: I2C_NUM_1  SDA=GPIO4  SCL=GPIO5
+static mcp3421_handle_t s_ic2;
+static const mcp3421_bus_config_t s_bus2 = {
+    .i2c_port = I2C_NUM_1,
+    .sda_pin  = 4,
+    .scl_pin  = 5,
+    .clk_hz   = MCP3421_CLK_DEFAULT,
+};
+
+// Both ADCs: 16-bit, gain 2×, continuous mode, addr 0x68 (default)
+static const mcp3421_dev_config_t s_adc_cfg = MCP3421_DEV_CONFIG_DEFAULT();
 
 static battery_adc_config_t s_bat = {
     .adc_channel   = ADC1_CHANNEL_0,
     .adc_gpio      = 1,
+    .sense_en_gpio = 39,
     .r1_ohm        = 100000,
     .r2_ohm        = 47000,
     .vbat_full_mv  = 4200,

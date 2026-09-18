@@ -57,15 +57,17 @@ fix: mcp3421 sign-extend bug for 18-bit reading
 | 1    | BAT_ADC       | BatteryAdc      |
 | 2    | SW_UP         | InputSwitch     |
 | 3    | SW_DOWN       | InputSwitch     |
-| 4    | SW_SELECT     | InputSwitch     |
-| 5    | I2C_SDA       | Mcp3421         |
-| 6    | I2C_SCL       | Mcp3421         |
+| 4    | ADC2_SDA      | Mcp3421 IC2     |
+| 5    | ADC2_SCL      | Mcp3421 IC2     |
 | 7    | SW_BACK       | InputSwitch     |
+| 8    | ADC1_SDA      | Mcp3421 IC1     |
+| 9    | ADC1_SCL      | Mcp3421 IC1     |
 | 10   | GLCD_CS       | GlcdCog128x64   |
 | 11   | GLCD_RST      | GlcdCog128x64   |
 | 12   | GLCD_DC (A0)  | GlcdCog128x64   |
 | 13   | SPI_SCK       | GlcdCog128x64   |
 | 14   | SPI_MOSI      | GlcdCog128x64   |
+| 39   | BAT_SENSE_EN  | BatteryAdc      |
 | 40   | BL_CTRL       | GlcdCog128x64   |
 | 48   | LED           | LedBlink        |
 

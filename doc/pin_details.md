@@ -2,22 +2,24 @@
 
 ## ESP32-S3 Module — Full Connection Table
 
-| GPIO | Net / Signal  | Peripheral      | Direction | Notes                              |
-|------|---------------|-----------------|-----------|------------------------------------|
-| 1    | BAT_ADC       | BatteryAdc      | Input     | Voltage divider: 100 kΩ + 47 kΩ from VBAT |
-| 2    | SW_UP         | Tactile switch  | Input     | Active low — internal pull-up enabled      |
-| 3    | SW_DOWN       | Tactile switch  | Input     | Active low — internal pull-up enabled      |
-| 4    | SW_SELECT     | Tactile switch  | Input     | Active low — internal pull-up enabled      |
-| 5    | I2C_SDA       | MCP3421 IC1+IC2 | Bidir     | 4.7 kΩ pull-up to 3.3 V                   |
-| 6    | I2C_SCL       | MCP3421 IC1+IC2 | Output    | 4.7 kΩ pull-up to 3.3 V                   |
-| 7    | SW_BACK       | Tactile switch  | Input     | Active low — internal pull-up enabled      |
-| 10   | GLCD_CS       | ST7565R GLCD    | Output    | SPI chip select, active low                |
-| 11   | GLCD_RST      | ST7565R GLCD    | Output    | Active low hardware reset                  |
-| 12   | GLCD_DC (A0)  | ST7565R GLCD    | Output    | LOW = command, HIGH = data                 |
-| 13   | SPI_SCK       | ST7565R GLCD    | Output    | SPI2_HOST clock, 8 MHz                     |
-| 14   | SPI_MOSI      | ST7565R GLCD    | Output    | SPI2_HOST data out                         |
-| 40   | BL_CTRL       | GLCD backlight  | Output    | PWM active-low (LOW = full bright)         |
-| 48   | LED           | Status LED      | Output    | Active high — 330 Ω series resistor        |
+| GPIO | Net / Signal    | Peripheral        | Direction | Notes                                       |
+|------|-----------------|-------------------|-----------|---------------------------------------------|
+| 1    | BAT_ADC         | BatteryAdc        | Input     | Voltage divider: 100 kΩ + 47 kΩ from VBAT  |
+| 2    | SW_UP           | Tactile switch    | Input     | Active low — internal pull-up enabled       |
+| 3    | SW_DOWN         | Tactile switch    | Input     | Active low — internal pull-up enabled       |
+| 4    | ADC2_SDA        | MCP3421 IC2       | Bidir     | I2C bus 2 SDA — 4.7 kΩ pull-up to 3.3 V   |
+| 5    | ADC2_SCL        | MCP3421 IC2       | Output    | I2C bus 2 SCL — 4.7 kΩ pull-up to 3.3 V   |
+| 7    | SW_BACK         | Tactile switch    | Input     | Active low — internal pull-up enabled       |
+| 8    | ADC1_SDA        | MCP3421 IC1       | Bidir     | I2C bus 1 SDA — 4.7 kΩ pull-up to 3.3 V   |
+| 9    | ADC1_SCL        | MCP3421 IC1       | Output    | I2C bus 1 SCL — 4.7 kΩ pull-up to 3.3 V   |
+| 10   | GLCD_CS         | ST7565R GLCD      | Output    | SPI chip select, active low                 |
+| 11   | GLCD_RST        | ST7565R GLCD      | Output    | Active low hardware reset                   |
+| 12   | GLCD_DC (A0)    | ST7565R GLCD      | Output    | LOW = command, HIGH = data                  |
+| 13   | SPI_SCK         | ST7565R GLCD      | Output    | SPI2_HOST clock, 8 MHz                      |
+| 14   | SPI_MOSI        | ST7565R GLCD      | Output    | SPI2_HOST data out                          |
+| 39   | BAT_SENSE_EN    | BatteryAdc        | Output    | HIGH = enable voltage divider / sense power |
+| 40   | BL_CTRL         | GLCD backlight    | Output    | PWM active-low (LOW = full bright)          |
+| 48   | LED             | Status LED        | Output    | Active high — 330 Ω series resistor         |
 
 ---
 
@@ -40,14 +42,14 @@
 | 5   | SCL  | GPIO 6            | I2C clock — shared with IC2              |
 | 6   | VDD  | 3.3 V             | Decoupling cap 100 nF to GND             |
 
-### I2C Addresses (ADR0 pin selection)
+### I2C Bus Assignment (two separate buses)
 
-| Device | ADR0 tie | 7-bit Address |
-|--------|----------|---------------|
-| IC1    | GND      | 0x68          |
-| IC2    | VDD      | 0x69          |
+| Device | I2C Bus   | SDA    | SCL    | 7-bit Address |
+|--------|-----------|--------|--------|---------------|
+| IC1    | I2C_NUM_0 | GPIO 8 | GPIO 9 | 0x68          |
+| IC2    | I2C_NUM_1 | GPIO 4 | GPIO 5 | 0x68          |
 
-> For two devices on the same bus, use **MCP3422 / MCP3423 / MCP3424** — identical SOT-23 footprint, adds ADR0 address-select pin.  Plain MCP3421 has no address pin (fixed 0x68 only).
+> Each ADC is on its own dedicated I2C bus — both can use the fixed MCP3421 address 0x68 without conflict. No ADR0 address-select pin required.
 
 ---
 
@@ -110,16 +112,23 @@ Hold time: UP/DOWN 1000 ms, SELECT 1500 ms, BACK hold disabled.
        │
      100 kΩ
        │
-       ├──── GPIO 1 (ADC1_CH0)
+       ├──── GPIO 1 (ADC1_CH0)   ← voltage sense
        │
       47 kΩ
        │
-      GND
+      GND ── via GPIO 39 (BAT_SENSE_EN, switch LOW-side or enable)
 ```
+
+| GPIO | Signal        | Function                                        |
+|------|---------------|-------------------------------------------------|
+| 1    | BAT_ADC       | Analog voltage sense (ADC1_CH0)                 |
+| 39   | BAT_SENSE_EN  | Enable/disable sense circuit (HIGH = on)        |
 
 Divider ratio: 47k / (100k + 47k) = **0.32**
 At VBAT = 4.2 V → ADC input = 1.34 V (within ESP32-S3 ADC range 0–3.3 V)
 At VBAT = 3.0 V → ADC input = 0.96 V
+
+GPIO 39 allows the sense divider to be powered off between readings to save battery current.
 
 ---
 

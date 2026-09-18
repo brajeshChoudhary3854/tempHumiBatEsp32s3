@@ -72,6 +72,12 @@ esp_err_t adc_sensor_get_latest(adc_sensor_t *s, int32_t *raw);
 // ESP_ERR_INVALID_STATE if buffer is empty.
 esp_err_t adc_sensor_get_avg(adc_sensor_t *s, float *avg);
 
+// Moving window average: mean of the last `window` samples (most recent first).
+// If fewer than `window` samples are in the buffer, uses however many exist.
+// `window` must be > 0 and <= buf_size; clamped to count if count < window.
+// ESP_ERR_INVALID_STATE if buffer is still empty.
+esp_err_t adc_sensor_get_moving_avg(adc_sensor_t *s, uint16_t window, float *avg);
+
 // Min / max of all valid buffered samples.
 // ESP_ERR_INVALID_STATE if buffer is empty.
 esp_err_t adc_sensor_get_min(adc_sensor_t *s, int32_t *min_raw);

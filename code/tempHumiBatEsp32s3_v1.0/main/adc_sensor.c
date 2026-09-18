@@ -138,6 +138,36 @@ esp_err_t adc_sensor_get_avg(adc_sensor_t *s, float *avg)
     return ret;
 }
 
+esp_err_t adc_sensor_get_moving_avg(adc_sensor_t *s, uint16_t window, float *avg)
+{
+    if (!s || !avg || window == 0) return ESP_ERR_INVALID_ARG;
+
+    esp_err_t ret = ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s->mutex, pdMS_TO_TICKS(LOCK_MS)) == pdTRUE) {
+        if (s->count > 0) {
+            uint16_t size = s->cfg.buf_size;
+
+            // Clamp window: cannot exceed available samples or buffer capacity
+            if (window > s->count)    window = s->count;
+            if (window > size)        window = size;
+
+            // The `window` most recent samples occupy indices:
+            //   start = (head - window + size) % size  →  head - 1  (newest)
+            // Walking start..start+window-1 (mod size) goes oldest→newest.
+            uint16_t start = (uint16_t)((s->head + size - window) % size);
+
+            double sum = 0.0;
+            for (uint16_t i = 0; i < window; i++)
+                sum += (double)s->cfg.buf[(start + i) % size];
+
+            *avg = (float)(sum / (double)window);
+            ret  = ESP_OK;
+        }
+        xSemaphoreGive(s->mutex);
+    }
+    return ret;
+}
+
 esp_err_t adc_sensor_get_min(adc_sensor_t *s, int32_t *min_raw)
 {
     if (!s || !min_raw) return ESP_ERR_INVALID_ARG;

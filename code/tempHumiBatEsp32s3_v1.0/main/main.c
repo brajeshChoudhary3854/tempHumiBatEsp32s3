@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -9,7 +10,8 @@
 // ── Step 2+ (uncomment as each step is done) ──────────────────────────
 #include "glcd_cog.h"
 #include "home_screen.h"
-// #include "hc2a.h"          // Step 5: HC2A-S3 temp+humi sensor
+#include "mcp3421.h"           // Step 5: MCP3421 IC test
+// #include "hc2a.h"           // Step 5: HC2A-S3 full sensor (after IC test)
 // #include "battery_adc.h"
 #include "input_switch.h"
 // #include "user_menu.h"
@@ -132,15 +134,90 @@ static void serial_cmd_task(void *arg)
     }
 }
 
+// ── Step 5: MCP3421 IC1 + IC2 test ────────────────────────────────────
+// IC1: temperature ADC — I2C_NUM_0  SDA=GPIO8  SCL=GPIO9
+static mcp3421_handle_t s_ic1;
+static const mcp3421_bus_config_t s_bus1 = {
+    .i2c_port = I2C_NUM_0, .sda_pin = 8, .scl_pin = 9,
+    .clk_hz   = MCP3421_CLK_DEFAULT,
+};
+// IC2: humidity ADC — I2C_NUM_1  SDA=GPIO4  SCL=GPIO5
+static mcp3421_handle_t s_ic2;
+static const mcp3421_bus_config_t s_bus2 = {
+    .i2c_port = I2C_NUM_1, .sda_pin = 4, .scl_pin = 5,
+    .clk_hz   = MCP3421_CLK_DEFAULT,
+};
+// Both: 16-bit, gain 2x, continuous mode, address 0x68
+static const mcp3421_dev_config_t s_adc_cfg = MCP3421_DEV_CONFIG_DEFAULT();
+
+static void mcp3421_test_task(void *arg)
+{
+    (void)arg;
+    char line1[32], line2[32];
+    uint32_t n = 0;
+
+    printf("\n=== MCP3421 IC test  (16-bit, gain 2x, 0-1V range) ===\n");
+    printf("%-4s  %-10s %-10s  |  %-10s %-10s\n",
+           "#", "IC1 raw", "IC1 mV", "IC2 raw", "IC2 mV");
+
+    while (1) {
+        int32_t raw1 = 0, raw2 = 0;
+        float   mv1  = 0.0f, mv2 = 0.0f;
+
+        esp_err_t e1 = mcp3421_read_raw(&s_ic1, &raw1);
+        esp_err_t e2 = mcp3421_read_raw(&s_ic2, &raw2);
+
+        if (e1 == ESP_OK) mcp3421_read_mv(&s_ic1, &mv1);
+        if (e2 == ESP_OK) mcp3421_read_mv(&s_ic2, &mv2);
+
+        // Serial output
+        if (e1 == ESP_OK && e2 == ESP_OK) {
+            printf("%-4"PRIu32"  %-10"PRId32" %-10.3f  |  %-10"PRId32" %-10.3f\n",
+                   n, raw1, mv1, raw2, mv2);
+        } else {
+            printf("%-4"PRIu32"  IC1:%s  IC2:%s\n",
+                   n,
+                   e1 == ESP_OK ? "OK " : "ERR",
+                   e2 == ESP_OK ? "OK " : "ERR");
+            if (e1 != ESP_OK) printf("       IC1 err=0x%x\n", e1);
+            if (e2 != ESP_OK) printf("       IC2 err=0x%x\n", e2);
+        }
+
+        // GLCD: simple 4-line test screen
+        glcd_cog_clear();
+        glcd_cog_draw_string(0, 0,  "MCP3421 TEST");
+        glcd_cog_draw_string(0, 14, "IC1(temp):");
+        if (e1 == ESP_OK) {
+            snprintf(line1, sizeof(line1), "%.3f mV", mv1);
+        } else {
+            snprintf(line1, sizeof(line1), "ERR 0x%x", e1);
+        }
+        glcd_cog_draw_string(0, 24, line1);
+
+        glcd_cog_draw_string(0, 40, "IC2(humi):");
+        if (e2 == ESP_OK) {
+            snprintf(line2, sizeof(line2), "%.3f mV", mv2);
+        } else {
+            snprintf(line2, sizeof(line2), "ERR 0x%x", e2);
+        }
+        glcd_cog_draw_string(0, 50, line2);
+        glcd_cog_update();
+
+        n++;
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 // ── Step 3: switch config + callback ──────────────────────────────────
+// NOTE: GPIO4 (SW_SELECT) is now IC2 SDA — removed from switch list.
+// SW_SELECT needs a new GPIO pin assignment (TBD in next hardware rev).
 static input_switch_config_t s_sw_cfg = {
     .pins = {
-        {.pin=2, .id=SW_UP,     .active_low=true, .hold_ms=1000, .double_click_ms=300},
-        {.pin=3, .id=SW_DOWN,   .active_low=true, .hold_ms=1000, .double_click_ms=300},
-        {.pin=4, .id=SW_SELECT, .active_low=true, .hold_ms=1500, .double_click_ms=300},
-        {.pin=7, .id=SW_BACK,   .active_low=true, .hold_ms=0,    .double_click_ms=0},
+        {.pin=2, .id=SW_UP,   .active_low=true, .hold_ms=1000, .double_click_ms=300},
+        {.pin=3, .id=SW_DOWN, .active_low=true, .hold_ms=1000, .double_click_ms=300},
+        {.pin=7, .id=SW_BACK, .active_low=true, .hold_ms=0,    .double_click_ms=0},
     },
-    .count       = 4,
+    .count       = 3,
     .debounce_ms = 20,
 };
 
@@ -234,10 +311,13 @@ void app_main(void)
     led_blink_init(&s_led);
     printf("tempHumiBatEsp32s3 v1.0 starting\n");
 
-    // ── Step 2: GLCD init — default DIS270 portrait home screen ────
+    // ── Step 2: GLCD init ──────────────────────────────────────────
     glcd_cog_init(&s_disp);
     glcd_cog_set_orientation(GLCD_ORIENT_CCW);   // DIS270: 64×128 portrait
-    home_screen_draw(25.3f, 68.0f);              // demo values until ADC ready
+    glcd_cog_clear();
+    glcd_cog_draw_string(0, 0,  "MCP3421 TEST");
+    glcd_cog_draw_string(0, 14, "Initialising...");
+    glcd_cog_update();
 
     // ── Serial contrast tuning task ────────────────────────────────
     xTaskCreate(serial_cmd_task, "serial_cmd", 4096, NULL, 3, NULL);
@@ -250,10 +330,12 @@ void app_main(void)
     user_menu_init(&s_main_menu);
     */
 
-    // ── Step 5: HC2A-S3 sensor (temp + humi via two MCP3421 ADCs) ──
-    /*
-    hc2a_init(&s_hc2a, &s_hc2a_cfg);
-    */
+    // ── Step 5: MCP3421 IC1 + IC2 raw test ────────────────────────
+    esp_err_t e1 = mcp3421_init(&s_ic1, &s_bus1, &s_adc_cfg);
+    esp_err_t e2 = mcp3421_init(&s_ic2, &s_bus2, &s_adc_cfg);
+    printf("MCP3421 IC1 init: %s\n", e1 == ESP_OK ? "OK" : esp_err_to_name(e1));
+    printf("MCP3421 IC2 init: %s\n", e2 == ESP_OK ? "OK" : esp_err_to_name(e2));
+    xTaskCreate(mcp3421_test_task, "mcp_test", 4096, NULL, 4, NULL);
 
     // ── Step 6: Battery ADC ─────────────────────────────────────────
     /*

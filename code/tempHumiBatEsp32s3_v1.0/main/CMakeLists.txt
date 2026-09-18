@@ -9,6 +9,7 @@ idf_component_register(
         "input_switch.c"
         "user_menu.c"
         "home_screen.c"
+        "adc_sensor.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_adc freertos
 )

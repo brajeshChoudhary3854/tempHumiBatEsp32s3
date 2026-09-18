@@ -10,6 +10,7 @@
 #include "glcd_cog.h"
 #include "home_screen.h"
 // #include "mcp3421.h"
+// #include "adc_sensor.h"
 // #include "battery_adc.h"
 #include "input_switch.h"
 // #include "user_menu.h"
@@ -205,6 +206,38 @@ static const mcp3421_bus_config_t s_bus2 = {
 // Both ADCs: 16-bit, gain 2×, continuous mode, addr 0x68 (default)
 static const mcp3421_dev_config_t s_adc_cfg = MCP3421_DEV_CONFIG_DEFAULT();
 
+// AdcSensor: thin adapter wiring mcp3421_read_raw into adc_read_fn_t
+static esp_err_t mcp3421_read_raw_fn(void *ctx, int32_t *raw)
+{
+    return mcp3421_read_raw((mcp3421_handle_t *)ctx, raw);
+}
+
+#define TEMP_BUF_SIZE  32
+#define HUMI_BUF_SIZE  32
+static int32_t      s_temp_buf[TEMP_BUF_SIZE];
+static int32_t      s_humi_buf[HUMI_BUF_SIZE];
+static adc_sensor_t s_temp_sensor;
+static adc_sensor_t s_humi_sensor;
+
+static const adc_sensor_config_t s_temp_sensor_cfg = {
+    .read_fn         = mcp3421_read_raw_fn,
+    .read_ctx        = &s_ic1,
+    .buf             = s_temp_buf,
+    .buf_size        = TEMP_BUF_SIZE,
+    .scan_ms         = 200,
+    .error_threshold = ADC_SENSOR_ERROR_THRESHOLD_DEFAULT,
+    .name            = "temp_sensor",
+};
+static const adc_sensor_config_t s_humi_sensor_cfg = {
+    .read_fn         = mcp3421_read_raw_fn,
+    .read_ctx        = &s_ic2,
+    .buf             = s_humi_buf,
+    .buf_size        = HUMI_BUF_SIZE,
+    .scan_ms         = 200,
+    .error_threshold = ADC_SENSOR_ERROR_THRESHOLD_DEFAULT,
+    .name            = "humi_sensor",
+};
+
 static battery_adc_config_t s_bat = {
     .adc_channel   = ADC1_CHANNEL_0,
     .adc_gpio      = 1,
@@ -252,27 +285,12 @@ void app_main(void)
     user_menu_init(&s_main_menu);
     */
 
-    // ── Step 5: MCP3421 ADC ─────────────────────────────────────────
+    // ── Step 5: MCP3421 ADC + AdcSensor buffered acquisition ───────
     /*
-    mcp3421_bus_config_t bus = {
-        .i2c_port   = I2C_NUM_0,
-        .sda_pin    = 5,
-        .scl_pin    = 6,
-        .i2c_clk_hz = 400000,
-    };
-    mcp3421_bus_init(&bus);
-    mcp3421_dev_config_t ic1_cfg = {
-        .addr = MCP3421_ADDR_GND,
-        .rate = MCP3421_RATE_15SPS,
-        .gain = MCP3421_GAIN_1,
-    };
-    mcp3421_dev_config_t ic2_cfg = {
-        .addr = MCP3421_ADDR_VDD,
-        .rate = MCP3421_RATE_15SPS,
-        .gain = MCP3421_GAIN_1,
-    };
-    mcp3421_init(&s_ic1, &ic1_cfg, I2C_NUM_0);
-    mcp3421_init(&s_ic2, &ic2_cfg, I2C_NUM_0);
+    mcp3421_init(&s_ic1, &s_bus1, &s_adc_cfg);    // temp: I2C_NUM_0 GPIO8/9
+    mcp3421_init(&s_ic2, &s_bus2, &s_adc_cfg);    // humi: I2C_NUM_1 GPIO4/5
+    adc_sensor_init(&s_temp_sensor, &s_temp_sensor_cfg);
+    adc_sensor_init(&s_humi_sensor, &s_humi_sensor_cfg);
     */
 
     // ── Step 6: Battery ADC ─────────────────────────────────────────

@@ -10,6 +10,7 @@ idf_component_register(
         "user_menu.c"
         "home_screen.c"
         "adc_sensor.c"
+        "hc2a.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_adc freertos
 )

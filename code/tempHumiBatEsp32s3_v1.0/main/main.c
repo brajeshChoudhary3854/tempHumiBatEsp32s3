@@ -9,8 +9,7 @@
 // ── Step 2+ (uncomment as each step is done) ──────────────────────────
 #include "glcd_cog.h"
 #include "home_screen.h"
-// #include "mcp3421.h"
-// #include "adc_sensor.h"
+// #include "hc2a.h"          // Step 5: HC2A-S3 temp+humi sensor
 // #include "battery_adc.h"
 #include "input_switch.h"
 // #include "user_menu.h"
@@ -185,57 +184,23 @@ static void sw_event_cb(switch_id_t id, switch_event_t event)
 /*
 // ── Step 5-8 placeholders (uncomment as steps are enabled) ────────────
 
-// IC1 — temperature sensor: I2C_NUM_0  SDA=GPIO8  SCL=GPIO9
-static mcp3421_handle_t s_ic1;
-static const mcp3421_bus_config_t s_bus1 = {
-    .i2c_port = I2C_NUM_0,
-    .sda_pin  = 8,
-    .scl_pin  = 9,
-    .clk_hz   = MCP3421_CLK_DEFAULT,
-};
+// HC2A-S3: one handle wraps both MCP3421 ADCs + both AdcSensor tasks
+static int32_t     s_temp_buf[HC2A_BUF_SIZE_DEFAULT];
+static int32_t     s_humi_buf[HC2A_BUF_SIZE_DEFAULT];
+static hc2a_t      s_hc2a;
 
-// IC2 — humidity sensor: I2C_NUM_1  SDA=GPIO4  SCL=GPIO5
-static mcp3421_handle_t s_ic2;
-static const mcp3421_bus_config_t s_bus2 = {
-    .i2c_port = I2C_NUM_1,
-    .sda_pin  = 4,
-    .scl_pin  = 5,
-    .clk_hz   = MCP3421_CLK_DEFAULT,
-};
-
-// Both ADCs: 16-bit, gain 2×, continuous mode, addr 0x68 (default)
-static const mcp3421_dev_config_t s_adc_cfg = MCP3421_DEV_CONFIG_DEFAULT();
-
-// AdcSensor: thin adapter wiring mcp3421_read_raw into adc_read_fn_t
-static esp_err_t mcp3421_read_raw_fn(void *ctx, int32_t *raw)
-{
-    return mcp3421_read_raw((mcp3421_handle_t *)ctx, raw);
-}
-
-#define TEMP_BUF_SIZE  32
-#define HUMI_BUF_SIZE  32
-static int32_t      s_temp_buf[TEMP_BUF_SIZE];
-static int32_t      s_humi_buf[HUMI_BUF_SIZE];
-static adc_sensor_t s_temp_sensor;
-static adc_sensor_t s_humi_sensor;
-
-static const adc_sensor_config_t s_temp_sensor_cfg = {
-    .read_fn         = mcp3421_read_raw_fn,
-    .read_ctx        = &s_ic1,
-    .buf             = s_temp_buf,
-    .buf_size        = TEMP_BUF_SIZE,
-    .scan_ms         = 200,
+static const hc2a_config_t s_hc2a_cfg = {
+    // IC1 — HC2A pin 6 (temp output) → I2C_NUM_0  SDA=GPIO8  SCL=GPIO9
+    .temp_bus = { .i2c_port=I2C_NUM_0, .sda_pin=8, .scl_pin=9,
+                  .clk_hz=MCP3421_CLK_DEFAULT },
+    // IC2 — HC2A pin 5 (humi output) → I2C_NUM_1  SDA=GPIO4  SCL=GPIO5
+    .humi_bus = { .i2c_port=I2C_NUM_1, .sda_pin=4, .scl_pin=5,
+                  .clk_hz=MCP3421_CLK_DEFAULT },
+    .temp_buf        = s_temp_buf,
+    .humi_buf        = s_humi_buf,
+    .buf_size        = HC2A_BUF_SIZE_DEFAULT,
+    .scan_ms         = HC2A_SCAN_MS_DEFAULT,
     .error_threshold = ADC_SENSOR_ERROR_THRESHOLD_DEFAULT,
-    .name            = "temp_sensor",
-};
-static const adc_sensor_config_t s_humi_sensor_cfg = {
-    .read_fn         = mcp3421_read_raw_fn,
-    .read_ctx        = &s_ic2,
-    .buf             = s_humi_buf,
-    .buf_size        = HUMI_BUF_SIZE,
-    .scan_ms         = 200,
-    .error_threshold = ADC_SENSOR_ERROR_THRESHOLD_DEFAULT,
-    .name            = "humi_sensor",
 };
 
 static battery_adc_config_t s_bat = {
@@ -285,12 +250,9 @@ void app_main(void)
     user_menu_init(&s_main_menu);
     */
 
-    // ── Step 5: MCP3421 ADC + AdcSensor buffered acquisition ───────
+    // ── Step 5: HC2A-S3 sensor (temp + humi via two MCP3421 ADCs) ──
     /*
-    mcp3421_init(&s_ic1, &s_bus1, &s_adc_cfg);    // temp: I2C_NUM_0 GPIO8/9
-    mcp3421_init(&s_ic2, &s_bus2, &s_adc_cfg);    // humi: I2C_NUM_1 GPIO4/5
-    adc_sensor_init(&s_temp_sensor, &s_temp_sensor_cfg);
-    adc_sensor_init(&s_humi_sensor, &s_humi_sensor_cfg);
+    hc2a_init(&s_hc2a, &s_hc2a_cfg);
     */
 
     // ── Step 6: Battery ADC ─────────────────────────────────────────
@@ -302,24 +264,12 @@ void app_main(void)
         // Step 1: blink 1Hz
         led_blink_run(500, 500);
 
-        // Step 5+: read ADC and show on display
+        // Step 5+: read HC2A-S3 and update home screen
         /*
-        float mv1, mv2;
-        mcp3421_read_mv(&s_ic1, &mv1);
-        mcp3421_read_mv(&s_ic2, &mv2);
-
-        uint32_t vbat = battery_adc_read_mv();
-        uint8_t  pct  = battery_adc_read_percent();
-
-        char buf[22];
-        glcd_cog_clear();
-        snprintf(buf, sizeof(buf), "IC1:%.1fmV", mv1);
-        glcd_cog_draw_string(0, 0, buf);
-        snprintf(buf, sizeof(buf), "IC2:%.1fmV", mv2);
-        glcd_cog_draw_string(0, 10, buf);
-        snprintf(buf, sizeof(buf), "Bat:%u%% %umV", pct, vbat);
-        glcd_cog_draw_string(0, 20, buf);
-        glcd_cog_update();
+        float temp_c = 0.0f, humi_pct = 0.0f;
+        hc2a_get_temp_avg(&s_hc2a, &temp_c);
+        hc2a_get_humi_avg(&s_hc2a, &humi_pct);
+        home_screen_draw(temp_c, humi_pct);
         */
     }
 }

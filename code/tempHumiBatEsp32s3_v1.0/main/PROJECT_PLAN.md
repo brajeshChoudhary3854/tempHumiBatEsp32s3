@@ -12,7 +12,7 @@ MCP3421 external ADC (×2), and user menu navigation via tactile switches.
 | Component      | Interface | Pins                        |
 |----------------|-----------|-----------------------------|
 | LED (status)   | GPIO48    | active_high                 |
-| GLCD ST7565    | SPI2      | SCK=12, MOSI=11, CS=10, DC=9, RST=8 |
+| GLCD ST7565    | SPI2      | SCK=13, MOSI=14, CS=10, DC=12, RST=11, BL=40 |
 | MCP3421 IC1    | I2C0      | SDA=5, SCL=6, addr=0x68     |
 | MCP3421 IC2    | I2C0      | SDA=5, SCL=6, addr=0x69     |
 | Battery ADC    | ADC1_CH0  | GPIO1 (via 100k+47k divider)|

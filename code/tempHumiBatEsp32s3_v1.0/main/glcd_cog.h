@@ -12,10 +12,28 @@ typedef struct {
     int sck_pin;
     int mosi_pin;
     int cs_pin;
-    int dc_pin;   // data/command select
-    int rst_pin;  // hardware reset (-1 = not used)
-    int clk_hz;   // SPI clock, max 10MHz for ST7565
+    int dc_pin;      // data/command select
+    int rst_pin;     // hardware reset (-1 = not used)
+    int bl_pin;      // backlight control, active low (-1 = not used)
+    int clk_hz;      // SPI clock, max 10MHz for ST7565
+    uint8_t col_offset; // column start offset (typically 4 for 132-col controllers)
 } glcd_cog_config_t;
+
+void glcd_cog_backlight(bool on);            // true = full ON, false = OFF
+void glcd_cog_set_backlight(uint8_t pct);   // 0 = off, 100 = full brightness
+
+typedef enum {
+    GLCD_ORIENT_H   = 0,  // DISH  : 0°   landscape, 128×64  (default)
+    GLCD_ORIENT_V,        // DISV  : 180° landscape, 128×64  (hardware flip)
+    GLCD_ORIENT_CW,       // DIS90 : 90°  CW portrait, logical 64×128 (software)
+    GLCD_ORIENT_CCW,      // DIS270: 90° CCW portrait, logical 64×128 (software)
+} glcd_orient_t;
+
+// In DISH/DISV mode logical canvas = 128×64.
+// In DIS90/DIS270 mode logical canvas = 64×128 (x: 0-63, y: 0-127).
+void glcd_cog_set_orientation(glcd_orient_t orient);
+uint8_t glcd_cog_log_width(void);   // current logical width
+uint8_t glcd_cog_log_height(void);  // current logical height
 
 void glcd_cog_init(const glcd_cog_config_t *cfg);
 void glcd_cog_clear(void);

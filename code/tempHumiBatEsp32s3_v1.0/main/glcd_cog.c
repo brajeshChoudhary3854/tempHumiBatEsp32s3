@@ -1,10 +1,17 @@
 #include "glcd_cog.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
 #include <stdlib.h>
+
+#define BL_LEDC_SPEED    LEDC_LOW_SPEED_MODE
+#define BL_LEDC_TIMER    LEDC_TIMER_0
+#define BL_LEDC_CHANNEL  LEDC_CHANNEL_0
+#define BL_LEDC_FREQ     5000
+#define BL_DUTY_MAX      255u   // 8-bit resolution: 0–255
 
 // ST7565 command bytes
 #define CMD_DISPLAY_OFF      0xAE
@@ -23,6 +30,7 @@
 #define CMD_BIAS_7           0xA3
 #define CMD_COM_NORMAL       0xC0
 #define CMD_COM_REVERSE      0xC8
+#define CMD_BOOSTER_RATIO    0xF8
 #define CMD_POWER_CTRL       0x28 // | 0x07 = booster+reg+follower on
 #define CMD_RESISTOR_RATIO   0x20 // | 0-7
 #define CMD_SET_EV           0x81 // followed by EV byte (0-63)
@@ -36,6 +44,7 @@ extern const uint8_t GLCD_FONT_LAST;
 static spi_device_handle_t s_spi;
 static glcd_cog_config_t   s_cfg;
 static uint8_t             s_fb[GLCD_PAGES][GLCD_WIDTH]; // framebuffer
+static glcd_orient_t       s_orient = GLCD_ORIENT_H;
 
 static void send_cmd(uint8_t cmd)
 {
@@ -85,6 +94,28 @@ void glcd_cog_init(const glcd_cog_config_t *cfg)
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    // Backlight pin (optional) — PWM via LEDC, active low
+    if (cfg->bl_pin >= 0) {
+        ledc_timer_config_t bl_timer = {
+            .speed_mode      = BL_LEDC_SPEED,
+            .timer_num       = BL_LEDC_TIMER,
+            .duty_resolution = LEDC_TIMER_8_BIT,
+            .freq_hz         = BL_LEDC_FREQ,
+            .clk_cfg         = LEDC_AUTO_CLK,
+        };
+        ledc_timer_config(&bl_timer);
+
+        ledc_channel_config_t bl_ch = {
+            .gpio_num   = cfg->bl_pin,
+            .speed_mode = BL_LEDC_SPEED,
+            .channel    = BL_LEDC_CHANNEL,
+            .timer_sel  = BL_LEDC_TIMER,
+            .duty       = BL_DUTY_MAX,  // start OFF (active low: full duty = off)
+            .hpoint     = 0,
+        };
+        ledc_channel_config(&bl_ch);
+    }
+
     // SPI bus
     spi_bus_config_t buscfg = {
         .mosi_io_num  = cfg->mosi_pin,
@@ -103,29 +134,35 @@ void glcd_cog_init(const glcd_cog_config_t *cfg)
     };
     spi_bus_add_device(cfg->spi_host, &devcfg, &s_spi);
 
-    // ST7565 init sequence
-    send_cmd(CMD_RESET);
-    vTaskDelay(pdMS_TO_TICKS(5));
-    send_cmd(CMD_BIAS_9);                  // 1/9 bias
-    send_cmd(CMD_ADC_NORMAL);             // column 0 = seg 0
-    send_cmd(CMD_COM_REVERSE);            // common output: reverse for top-view
-    send_cmd(CMD_DISP_NORMAL);            // not inverted
-    send_cmd(CMD_ALL_NORMAL);             // normal display
-    send_cmd(CMD_RESISTOR_RATIO | 0x05);  // V0 resistor ratio
-    send_cmd(CMD_SET_EV);
-    send_cmd(0x20);                       // contrast = 32 (mid)
-    send_cmd(CMD_POWER_CTRL | 0x07);      // power: booster + regulator + follower on
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // ST7565 init sequence (matched to working reference project)
     send_cmd(CMD_SET_STARTLINE | 0);      // display start line = 0
-    send_cmd(CMD_DISPLAY_ON);
+    send_cmd(CMD_ADC_REVERSE);            // 0xA1 - ADC reverse (connector at top)
+    send_cmd(CMD_COM_NORMAL);             // 0xC0 - COM normal
+    send_cmd(CMD_DISP_NORMAL);            // 0xA6 - not inverted
+    send_cmd(CMD_BIAS_9);                 // 0xA2 - 1/9 bias
+    send_cmd(CMD_POWER_CTRL | 0x07);      // 0x2F - power: booster+regulator+follower ON
+    vTaskDelay(pdMS_TO_TICKS(50));
+    send_cmd(0xf8);                       // booster ratio set
+    send_cmd(0x00);                       // booster ratio = 4x  (missing = blank display)
+    send_cmd(CMD_RESISTOR_RATIO | 0x07);  // 0x27 - V0 resistor ratio = 7 (max)
+    send_cmd(CMD_SET_EV);                 // 0x81 - contrast mode
+    send_cmd(0x01);                       // contrast = 1 (tune via serial: 0x00–0x3F)
+    send_cmd(0xac);                       // static indicator
+    send_cmd(0x00);                       // static indicator off
+    send_cmd(CMD_DISPLAY_ON);             // 0xAF
+
+    // Turn backlight on now that display is initialised
+    if (cfg->bl_pin >= 0)
+        glcd_cog_set_backlight(100);
 }
 
 void glcd_cog_update(void)
 {
+    uint8_t col = s_cfg.col_offset;
     for (uint8_t page = 0; page < GLCD_PAGES; page++) {
         send_cmd(CMD_SET_PAGE | page);
-        send_cmd(CMD_SET_COL_LOW  | 0);
-        send_cmd(CMD_SET_COL_HIGH | 0);
+        send_cmd(CMD_SET_COL_LOW  | (col & 0x0F));
+        send_cmd(CMD_SET_COL_HIGH | (col >> 4));
         send_data(s_fb[page], GLCD_WIDTH);
     }
 }
@@ -149,13 +186,31 @@ void glcd_cog_invert(bool on)
 
 void glcd_cog_set_pixel(uint8_t x, uint8_t y, bool on)
 {
-    if (x >= GLCD_WIDTH || y >= GLCD_HEIGHT) return;
-    uint8_t page = y / 8;
-    uint8_t bit  = y % 8;
-    if (on)
-        s_fb[page][x] |=  (1 << bit);
-    else
-        s_fb[page][x] &= ~(1 << bit);
+    // Transform logical (x,y) to physical (px,py) based on orientation.
+    // DISH/DISV: hardware handles flip — no software transform needed.
+    // CW/CCW:   physical display stays in DISH state; SW rotates framebuffer.
+    //   CW  logical canvas 64×128 → physical 128×64: px=127-y, py=x
+    //   CCW logical canvas 64×128 → physical 128×64: px=y,     py=63-x
+    uint8_t px, py;
+    switch (s_orient) {
+    case GLCD_ORIENT_CW:
+        px = (GLCD_WIDTH  - 1) - y;
+        py = x;
+        break;
+    case GLCD_ORIENT_CCW:
+        px = y;
+        py = (GLCD_HEIGHT - 1) - x;
+        break;
+    default:
+        px = x;
+        py = y;
+        break;
+    }
+    if (px >= GLCD_WIDTH || py >= GLCD_HEIGHT) return;
+    uint8_t page = py / 8;
+    uint8_t bit  = py % 8;
+    if (on) s_fb[page][px] |=  (1 << bit);
+    else    s_fb[page][px] &= ~(1 << bit);
 }
 
 void glcd_cog_draw_hline(uint8_t x, uint8_t y, uint8_t len, bool on)
@@ -216,9 +271,55 @@ void glcd_cog_draw_char(uint8_t x, uint8_t y, char c)
 
 void glcd_cog_draw_string(uint8_t x, uint8_t y, const char *str)
 {
+    uint8_t max_x = glcd_cog_log_width();
     while (*str) {
         glcd_cog_draw_char(x, y, *str++);
         x += 6;
-        if (x + 6 > GLCD_WIDTH) break;
+        if (x + 6 > max_x) break;
     }
+}
+
+void glcd_cog_set_backlight(uint8_t pct)
+{
+    if (s_cfg.bl_pin < 0) return;
+    if (pct > 100) pct = 100;
+    // active low: 100% brightness = duty 0, 0% brightness = duty 255
+    uint32_t duty = (uint32_t)(100 - pct) * BL_DUTY_MAX / 100;
+    ledc_set_duty(BL_LEDC_SPEED, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_SPEED, BL_LEDC_CHANNEL);
+}
+
+void glcd_cog_backlight(bool on)
+{
+    glcd_cog_set_backlight(on ? 100 : 0);
+}
+
+void glcd_cog_set_orientation(glcd_orient_t orient)
+{
+    s_orient = orient;
+    if (orient == GLCD_ORIENT_V) {
+        // 180°: flip both ADC and COM in hardware
+        send_cmd(CMD_ADC_NORMAL);   // 0xA0 — col 0 → SEG0
+        send_cmd(CMD_COM_REVERSE);  // 0xC8 — COM63 becomes top row
+        s_cfg.col_offset = 0;       // 4 extra SEGs fall off the right edge
+    } else {
+        // DISH, CW, CCW: hardware stays in normal landscape state;
+        // CW/CCW rotation handled by set_pixel coordinate transform.
+        send_cmd(CMD_ADC_REVERSE);  // 0xA1 — col 0 → SEG131
+        send_cmd(CMD_COM_NORMAL);   // 0xC0 — COM0 is top row
+        s_cfg.col_offset = 4;       // skip 4 invisible SEGs on left
+    }
+    // Caller must clear + redraw + update after this call.
+}
+
+uint8_t glcd_cog_log_width(void)
+{
+    return (s_orient == GLCD_ORIENT_CW || s_orient == GLCD_ORIENT_CCW)
+           ? GLCD_HEIGHT : GLCD_WIDTH;
+}
+
+uint8_t glcd_cog_log_height(void)
+{
+    return (s_orient == GLCD_ORIENT_CW || s_orient == GLCD_ORIENT_CCW)
+           ? GLCD_WIDTH : GLCD_HEIGHT;
 }

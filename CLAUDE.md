@@ -61,11 +61,12 @@ fix: mcp3421 sign-extend bug for 18-bit reading
 | 5    | I2C_SDA       | Mcp3421         |
 | 6    | I2C_SCL       | Mcp3421         |
 | 7    | SW_BACK       | InputSwitch     |
-| 8    | GLCD_RST      | GlcdCog128x64   |
-| 9    | GLCD_DC       | GlcdCog128x64   |
 | 10   | GLCD_CS       | GlcdCog128x64   |
-| 11   | SPI_MOSI      | GlcdCog128x64   |
-| 12   | SPI_SCK       | GlcdCog128x64   |
+| 11   | GLCD_RST      | GlcdCog128x64   |
+| 12   | GLCD_DC (A0)  | GlcdCog128x64   |
+| 13   | SPI_SCK       | GlcdCog128x64   |
+| 14   | SPI_MOSI      | GlcdCog128x64   |
+| 40   | BL_CTRL       | GlcdCog128x64   |
 | 48   | LED           | LedBlink        |
 
 ## Development Steps (see PROJECT_PLAN.md for details)

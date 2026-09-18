@@ -11,11 +11,12 @@
 | 5    | I2C_SDA       | Mcp3421 (both)  | 4.7kΩ pull-up to 3.3V       |
 | 6    | I2C_SCL       | Mcp3421 (both)  | 4.7kΩ pull-up to 3.3V       |
 | 7    | SW_BACK       | InputSwitch     | Active low, internal pull-up |
-| 8    | GLCD_RST      | GlcdCog128x64   | Active low reset             |
-| 9    | GLCD_DC       | GlcdCog128x64   | Data/Command select          |
 | 10   | GLCD_CS       | GlcdCog128x64   | SPI chip select              |
-| 11   | SPI_MOSI      | GlcdCog128x64   | SPI data out                 |
-| 12   | SPI_SCK       | GlcdCog128x64   | SPI clock                    |
+| 11   | GLCD_RST      | GlcdCog128x64   | Active low reset             |
+| 12   | GLCD_DC (A0)  | GlcdCog128x64   | Data/Command select          |
+| 13   | SPI_SCK       | GlcdCog128x64   | SPI clock                    |
+| 14   | SPI_MOSI      | GlcdCog128x64   | SPI data out                 |
+| 40   | BL_CTRL       | GlcdCog128x64   | LCD backlight, active low (LOW = ON) |
 | 48   | LED           | LedBlink        | Active high, 330Ω to LED     |
 
 ## Power
